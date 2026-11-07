@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import sharp from "sharp";
+import sharp, { type Metadata } from "sharp";
 import { LARGE_WIDTH, THUMB_WIDTH, WEB_DIR } from "@/lib/config";
 import { largeRelPath, originalRelPath, thumbRelPath } from "@/lib/media";
 
@@ -37,7 +37,7 @@ export function sha256Hex(buf: Buffer): string {
 export async function processImage(buf: Buffer): Promise<ProcessedImage> {
   const hash = sha256Hex(buf);
 
-  let meta: sharp.Metadata;
+  let meta: Metadata;
   try {
     meta = await sharp(buf, { animated: false }).metadata();
   } catch {

@@ -1,6 +1,6 @@
 import { eq, like, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { posts, RATINGS, tags, tagAliases, type Rating } from "@/db/schema";
+import { posts, tags, type Rating } from "@/db/schema";
 import { WILDCARD_MAX_TAGS } from "@/lib/config";
 import { normalizeTag, resolveTagName } from "@/lib/tags";
 
@@ -48,12 +48,12 @@ function resolveQuery(query: string): ResolvedQuery {
   const tokens = query.trim().split(/\s+/).filter(Boolean);
   const includeGroups: number[][] = [];
   const excludes: number[] = [];
-  const ratings: Rating[] = [];
+  let ratings: Rating[] = [];
   const unresolved: string[] = [];
 
   for (const raw of tokens) {
     const negated = raw.startsWith("-") && raw.length > 1;
-    let token = negated ? raw.slice(1) : raw;
+    const token = negated ? raw.slice(1) : raw;
 
     const ratingMatch = /^rating:(.+)$/i.exec(token);
     if (ratingMatch) {

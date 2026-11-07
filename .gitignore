@@ -42,3 +42,8 @@ next-env.d.ts
 
 # local database + generated media (the board's data, not source)
 data/
+
+# local secrets/config
+.env
+deploy/htpasswd
+deploy/certs/

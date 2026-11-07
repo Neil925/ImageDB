@@ -82,7 +82,7 @@ export function applyTagsToPost(postId: number, rawTags: string[]): ApplyTagsRes
   if (!ids.length) return { applied: [], created };
 
   const expanded = expandImplications(ids);
-  const added = db.transaction((tx) => {
+  db.transaction((tx) => {
     const addedIds: number[] = [];
     for (const tagId of expanded) {
       const res = tx
@@ -105,7 +105,6 @@ export function applyTagsToPost(postId: number, rawTags: string[]): ApplyTagsRes
         .where(sql`${posts.id} = ${postId} AND ${posts.status} = 'pending'`)
         .run();
     }
-    return addedIds;
   });
 
   const applied = db
@@ -116,7 +115,7 @@ export function applyTagsToPost(postId: number, rawTags: string[]): ApplyTagsRes
     .all()
     .map((r) => r.name);
 
-  return { applied, created: created.filter((n) => added.length > 0) };
+  return { applied, created };
 }
 
 export interface AutocompleteHit {
