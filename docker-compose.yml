@@ -1,0 +1,32 @@
+name: imagedb
+
+services:
+  app:
+    build: .
+    image: imagedb:${GIT_SHA:-dev}
+    restart: unless-stopped
+    environment:
+      IMAGEDB_DATA_DIR: /data
+      IMAGEDB_MIGRATE: "1"
+    volumes:
+      - imagedb-data:/data
+    ports:
+      - "127.0.0.1:3000:3000" # local only; nginx is the public door
+
+  web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./deploy/nginx-docker.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/htpasswd:/etc/imagedb/htpasswd:ro
+      - imagedb-data:/data:ro # nginx serves /media straight from the volume
+      - ./deploy/certs:/etc/letsencrypt:ro
+    ports:
+      - "80:80"
+      - "443:443"
+
+volumes:
+  imagedb-data:

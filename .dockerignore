@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+data
+deploy/certs
+deploy/htpasswd
+Dockerfile
+docker-compose.yml
+PROGRESS.md
+*.md

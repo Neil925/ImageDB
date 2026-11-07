@@ -1,0 +1,35 @@
+# ImageDB systemd unit (bare-metal path; the Docker path uses docker-compose.yml)
+# Deploy layout on the VPS:
+#   app:    /srv/imagedb/app        (deployed by scripts/deploy-bare.sh)
+#   data:   /srv/imagedb/data       (sqlite db + media; the thing you back up)
+# The unit self-migrates at boot (IMAGEDB_MIGRATE=1 + ./drizzle SQL migrations).
+#
+# sudo cp deploy/imagedb.service /etc/systemd/system/imagedb.service
+# sudo systemctl daemon-reload && sudo systemctl enable --now imagedb
+
+[Unit]
+Description=ImageDB private image board
+After=network.target
+
+[Service]
+Type=simple
+User=imagedb
+Group=www-data
+WorkingDirectory=/srv/imagedb/app
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=IMAGEDB_DATA_DIR=/srv/imagedb/data
+Environment=IMAGEDB_MIGRATE=1
+ExecStart=/usr/bin/node .next/standalone/server.js
+Restart=on-failure
+RestartSec=3
+
+# hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/imagedb/data
+
+[Install]
+WantedBy=multi-user.target

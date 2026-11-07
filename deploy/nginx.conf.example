@@ -1,0 +1,51 @@
+# ImageDB — Nginx reverse proxy (imagedb.example.com)
+#
+# Setup:
+#   sudo apt install nginx certbot python3-certbot-nginx apache2-utils
+#   sudo htpasswd -c /etc/imagedb/htpasswd neil     # add basic-auth user
+#   sudo certbot certonly --nginx -d imagedb.example.com
+# Place at /etc/nginx/sites-available/imagedb, symlink to sites-enabled, reload.
+#
+# Security model: basic auth in front of EVERYTHING (app + media) - the board
+# is private; this also keeps search engines and scanners out of NSFW content.
+
+server {
+    listen 80;
+    server_name imagedb.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name imagedb.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/imagedb.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/imagedb.example.com/privkey.pem;
+
+    # uploads: originals up to 32 MB (must match MAX_UPLOAD_BYTES in src/lib/config.ts)
+    client_max_body_size 40m;
+
+    auth_basic "ImageDB";
+    auth_basic_user_file /etc/imagedb/htpasswd;
+
+    # defense in depth: never let the board be indexed
+    add_header X-Robots-Tag "noindex, nofollow, noarchive" always;
+
+    # media: served straight from disk; paths are content-addressed (sha256)
+    # so they are immutable forever. Keep in sync with src/lib/media.ts.
+    location /media/ {
+        alias /srv/imagedb/data/web/;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header X-Robots-Tag "noindex, nofollow, noarchive" always;
+        access_log off;
+    }
+
+    # app
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;   # uploads + thumbnail generation
+    }
+}
