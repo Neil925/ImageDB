@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { posts } from "@/db/schema";
-import { mediaUrl } from "@/lib/media";
-import { RATING_SHORT, ratingClass } from "@/lib/format";
+import { gridUrl, ratingClass, RATING_SHORT, ratingName } from "@/lib/format";
 
 export default function PostGrid({
   rows,
@@ -34,20 +33,26 @@ export default function PostGrid({
             href={`/posts/${p.id}`}
             className="group relative mb-2 block break-inside-avoid overflow-hidden rounded"
           >
+            {/* eslint-disable-next-line @next/next/no-img-element -- plain img is fine; immutable cached grid webp */}
             <img
-              src={mediaUrl(p.thumbPath)}
-              width={p.width}
-              height={p.height}
+              src={gridUrl(p.sha256)}
+              width={p.width ?? undefined}
+              height={p.height ?? undefined}
               loading="lazy"
               alt={`post ${p.id}`}
               className="h-auto w-full transition-opacity group-hover:opacity-80"
             />
             <span
               className={`absolute left-1 top-1 rounded px-1.5 text-xs font-bold text-white ${ratingClass(p.rating)}`}
-              title={p.rating}
+              title={ratingName(p.rating)}
             >
-              {RATING_SHORT[p.rating]}
+              {RATING_SHORT[ratingName(p.rating)]}
             </span>
+            {p.status !== "active" && (
+              <span className="absolute right-1 top-1 rounded bg-zinc-900/90 px-1.5 text-xs text-zinc-300">
+                {p.status}
+              </span>
+            )}
           </Link>
         ))}
       </div>

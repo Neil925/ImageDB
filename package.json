@@ -8,21 +8,31 @@
     "start": "next start",
     "lint": "eslint",
     "db:push": "drizzle-kit push",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:dev": "node scripts/dev-db.mjs",
+    "worker": "tsx src/worker/index.ts",
+    "seed:load": "tsx scripts/seed-load.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "bench": "tsx scripts/bench-search.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
+    "@node-rs/argon2": "^2.2.2",
+    "better-auth": "^1.7.19",
     "drizzle-orm": "^0.45.4",
     "next": "16.4.5",
+    "pg": "^8.16.0",
+    "pg-boss": "^12.7.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "sharp": "^0.35.5",
-    "zod": "^4.6.7"
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
-    "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^20",
+    "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "drizzle-kit": "^0.31.11",
@@ -30,6 +40,27 @@
     "eslint-config-next": "16.4.5",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
-    "typescript": "^5"
+    "typescript": "^5",
+    "@types/pg": "^8.15.2",
+    "embedded-postgres": "^18.6.0-beta.19",
+    "vitest": "^5.1.0"
+  },
+  "description": "A private, self-hosted image board (booru) \u2014 Next.js 16, SQLite, sharp. Think Gelbooru's core loop: posts + tags + search, minus accounts and public traffic.",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Neil925/ImageDB.git"
+  },
+  "keywords": [],
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Neil925/ImageDB/issues"
+  },
+  "homepage": "https://github.com/Neil925/ImageDB#readme",
+  "allowScripts": {
+    "@embedded-postgres/linux-x64@18.6.0-beta.19": true,
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
   }
 }

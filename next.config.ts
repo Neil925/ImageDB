@@ -2,9 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone", // single self-contained server (Docker image)
-  serverExternalPackages: ["better-sqlite3", "sharp"], // native modules: keep out of bundling
+  serverExternalPackages: ["pg", "pg-boss", "sharp", "better-auth"], // native/db modules: keep out of bundling
   experimental: {
-    serverActions: { bodySizeLimit: "32mb" },
+    serverActions: { bodySizeLimit: "50mb" }, // must be >= MAX_UPLOAD_BYTES
   },
   turbopack: {
     rules: {

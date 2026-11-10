@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { currentUser, hasRole } from "@/lib/authz";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,7 +9,8 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const user = await currentUser().catch(() => null);
   return (
     <html lang="en">
       <body className="min-h-screen bg-zinc-950 text-zinc-100 antialiased">
@@ -32,15 +34,41 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </button>
             </form>
             <nav className="flex items-center gap-4 text-sm text-zinc-400">
-              <Link href="/uploads/new" className="font-medium text-sky-400 hover:text-sky-300">
-                + Upload
-              </Link>
-              <Link href="/uploads" className="hover:text-zinc-200">
-                Uploads
-              </Link>
               <Link href="/tags" className="hover:text-zinc-200">
                 Tags
               </Link>
+              <Link href="/pools" className="hover:text-zinc-200">
+                Pools
+              </Link>
+              {user && (
+                <Link href="/upload" className="font-medium text-sky-400 hover:text-sky-300">
+                  + Upload
+                </Link>
+              )}
+              {user && hasRole(user.role, "moderator") && (
+                <Link href="/mod" className="hover:text-zinc-200">
+                  Mod
+                </Link>
+              )}
+              {user && (
+                <Link href="/settings" className="hover:text-zinc-200">
+                  Settings
+                </Link>
+              )}
+              {user ? (
+                <span className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300">
+                  {user.name || user.email} · {user.role}
+                </span>
+              ) : (
+                <>
+                  <Link href="/login" className="hover:text-zinc-200">
+                    Sign in
+                  </Link>
+                  <Link href="/signup" className="font-medium text-sky-400 hover:text-sky-300">
+                    Sign up
+                  </Link>
+                </>
+              )}
             </nav>
           </div>
         </header>

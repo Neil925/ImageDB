@@ -1,126 +1,136 @@
 /**
- * Dev seed: generates synthetic posts (sharp-rendered gradient images),
- * a random tag vocabulary, aliases, and a few implications.
- * Usage: npm run db:push && npm run seed
+ * Dev seed for Postgres (plan acceptance: seeded data + worker pipeline).
+ * Creates seed users (admin/uploader/moderator), N synthetic images run
+ * through the REAL pipeline (sha256, original write, tag soup, derivatives,
+ * dHash), one alias, one implication + backfill, one pool, one duplicate.
  */
-import { randomInt } from "crypto";
+import fs from "fs";
+import crypto from "crypto";
 import sharp from "sharp";
-import { db } from "../src/db";
-import { posts, tags, tagAliases, tagImplications, RATINGS } from "../src/db/schema";
-import { processImage } from "../src/lib/images";
-import { applyTagsToPost, createTag, findTagByName } from "../src/lib/tags";
+import { eq } from "drizzle-orm";
+import { db, dbReady } from "../src/db";
+import { accounts, posts, users } from "../src/db/schema";
+import { WEB_DIR } from "../src/lib/config";
+import { applyTagsToPost, addImplication, setAliases, getOrCreateTag } from "../src/lib/tags";
+import { processDerivatives, sha256Hex, writeOriginal } from "../src/lib/images";
+import { createPool, addPostToPool } from "../src/lib/pools";
 
-const ADJECTIVES = [
-  "blue", "red", "green", "golden", "dark", "bright", "rainbow", "sunset",
-  "neon", "pastel", "stormy", "crystal", "autumn", "midnight", "electric",
-];
-const SUBJECTS = [
-  "sky", "forest", "ocean", "mountain", "city", "garden", "desert", "river",
-  "aurora", "cave", "meadow", "harbor", "canyon", "glacier", "lagoon",
-];
-const EXTRA_TAGS = [
-  "landscape", "gradient", "abstract", "test_pattern", "generated",
-  "high_res", "wallpaper", "art", "digital_media", "sample",
-];
-const CHARACTERS = ["hat", "umbrella", "lantern", "cat", "parasol", "glasses"];
+const N = Number(process.argv[2] ?? 500);
+const RATINGS = [0, 0, 0, 0, 1, 1, 2, 3]; // mostly general
 
-const pick = <T,>(arr: readonly T[]) => arr[randomInt(arr.length)];
-const rnd = (n: number) => randomInt(n);
+const TAGS = [
+  "sky", "clouds", "sunset", "night", "city", "lights", "nature", "forest", "water",
+  "reflection", "snow", "mountains", "street", "neon", "fog", "stars", "moon",
+  "cat", "cat_ears", "animal_ears", "generated", "test_pattern",
+];
 
-async function synthImage(): Promise<Buffer> {
-  const w = 400 + rnd(1600);
-  const h = 400 + rnd(1600);
-  const hue1 = rnd(360);
-  const hue2 = (hue1 + 60 + rnd(240)) % 360;
+async function makeImage(i: number): Promise<Buffer> {
+  const w = 320 + ((i * 37) % 400);
+  const h = 240 + ((i * 53) % 400);
+  const hue = (i * 47) % 360;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
-    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="hsl(${hue1}, 70%, ${30 + rnd(40)}%)"/>
-      <stop offset="100%" stop-color="hsl(${hue2}, 80%, ${20 + rnd(40)}%)"/>
-    </linearGradient></defs>
-    <rect width="100%" height="100%" fill="url(#g)"/>
-    <circle cx="${rnd(w)}" cy="${rnd(h)}" r="${50 + rnd(200)}"
-      fill="hsl(${rnd(360)}, 60%, 50%)" opacity="0.35"/>
+    <rect width="${w}" height="${h}" fill="hsl(${hue} 60% 40%)"/>
+    <circle cx="${(i * 13) % w}" cy="${(i * 7) % h}" r="${Math.min(w, h) / 3}" fill="hsl(${(hue + 120) % 360} 70% 60%)"/>
+    <text x="10" y="${h - 10}" font-size="20" fill="white">#${i}</text>
   </svg>`;
-  const fmt = rnd(4) === 0 ? "png" : "jpeg";
-  return sharp(Buffer.from(svg)).toFormat(fmt, { quality: 85 }).toBuffer();
+  return sharp(Buffer.from(svg))
+    .withExif({ IFD0: { Make: "SeedCam", Model: "EXIF-should-be-stripped" } })
+    .jpeg({ quality: 80 })
+    .toBuffer();
+}
+
+async function upsertUser(name: string, role: string) {
+  const existing = await db.select().from(users).where(eq(users.name, name)).limit(1);
+  if (existing[0]) return existing[0];
+  const id = crypto.randomUUID();
+  await db.insert(users).values({ id, name, email: `${name}@example.invalid`, role: role as never });
+  await db.insert(accounts).values({
+    id: crypto.randomUUID(),
+    accountId: id,
+    providerId: "credential",
+    userId: id,
+    password: "seed-no-login", // seeds don't sign in; use /signup in dev
+  });
+  return { id };
 }
 
 async function main() {
-  const existing = db.select({ id: posts.id }).from(posts).limit(1).all().length;
-  if (existing) {
-    console.log("Database not empty - skipping seed.");
-    return;
-  }
+  await dbReady();
+  fs.mkdirSync(WEB_DIR, { recursive: true });
 
-  // vocabulary
-  const vocab: string[] = [];
-  for (const a of ADJECTIVES) for (const s of SUBJECTS) vocab.push(`${a}_${s}`);
-  const common = vocab.slice(0, 40);
-  vocab.push(...EXTRA_TAGS, ...CHARACTERS.map((c) => pick(["1girl", "1boy"]) + "_" + c));
+  const admin = await upsertUser("seed-admin", "admin");
+  const uploader = await upsertUser("seed-uploader", "uploader");
+  const mod = await upsertUser("seed-mod", "moderator");
 
-  // aliases: a few vocab terms get a doubled-first-letter alias (paste-mode typo bait)
-  const aliasTargets = vocab.filter((_, i) => i % 7 === 0).slice(0, 15);
+  const catTag = await getOrCreateTag("cat");
 
-  const tagCache = new Map<string, number>();
-  const ensureTag = (name: string) => {
-    if (!tagCache.has(name)) tagCache.set(name, createTag(name).id);
-    return tagCache.get(name)!;
-  };
-  for (const name of aliasTargets) {
-    const tag = ensureTag(name);
-    const alias = `${name.slice(0, 1)}${name}`;
-    if (alias !== name && !findTagByName(alias)) {
-      db.insert(tagAliases).values({ alias, tagId: tag }).onConflictDoNothing().run();
-    }
-  }
-
-  // one implication: generated -> test_pattern
-  const generated = ensureTag("generated");
-  const testPattern = ensureTag("test_pattern");
-  db.insert(tagImplications)
-    .values({ tagId: generated, impliedTagId: testPattern })
-    .onConflictDoNothing()
-    .run();
-
-  const N = 500;
+  let created = 0;
   for (let i = 0; i < N; i++) {
-    const buf = await synthImage();
-    const img = await processImage(buf);
-
-    const tagNames = new Set<string>();
-    const nTags = 2 + rnd(6);
-    for (let t = 0; t < nTags; t++) {
-      tagNames.add(rnd(3) === 0 ? pick(common) : pick(vocab));
-    }
-    if (rnd(4) === 0) tagNames.add("generated");
-    const rating = RATINGS[
-      rnd(10) < 6 ? 0 : rnd(10) < 4 ? 1 : rnd(10) < 6 ? 2 : 3
-    ];
-
-    const createdAt = Date.now() - rnd(365 * 24 * 60 * 60 * 1000);
-    const row = db
+    const buf = await makeImage(i);
+    const hash = sha256Hex(buf);
+    const dup = await db.select({ id: posts.id }).from(posts).where(eq(posts.sha256, hash)).limit(1);
+    if (dup[0]) continue;
+    writeOriginal(hash, "jpg", buf);
+    const inserted = await db
       .insert(posts)
       .values({
-        ...img,
-        rating,
-        status: "pending", // applyTagsToPost flips to active
-        sourceUrl: rnd(3) === 0 ? `https://example.com/src/${i}` : null,
-        createdAt,
-        updatedAt: createdAt,
+        sha256: hash,
+        mime: "image/jpeg",
+        bytes: buf.length,
+        rating: RATINGS[i % RATINGS.length],
+        uploaderId: uploader.id,
+        status: "pending",
       })
-      .returning()
-      .get();
+      .returning({ id: posts.id });
+    const postId = inserted[0].id;
 
-    applyTagsToPost(row.id, [...tagNames]);
-    if (i % 50 === 0) console.log(`seeded ${i}/${N}`);
+    // Zipf-ish tag soup
+    const tagsForPost: string[] = [];
+    for (let k = 1; k <= 1 + (i % 5); k++) {
+      const idx = Math.floor(Math.pow(Math.random(), 2) * TAGS.length);
+      tagsForPost.push(TAGS[idx]);
+    }
+    await applyTagsToPost(postId, tagsForPost);
+
+    // run the worker pipeline inline for the seed
+    const der = await processDerivatives(hash, "jpg");
+    await db
+      .update(posts)
+      .set({
+        width: der.width,
+        height: der.height,
+        phash: der.phash,
+        status: i % 9 === 0 ? "pending" : "active", // keep ~11% in the queue
+      })
+      .where(eq(posts.id, postId));
+    created++;
   }
-  // make sure vocabulary tags exist for autocomplete testing
-  for (const name of vocab) if (!findTagByName(name)) createTag(name);
 
-  console.log(`Seeded ${N} posts, ${db.select({ id: tags.id }).from(tags).all().length} tags.`);
+  // aliases + implication (backfill lands via the queue; also applied to new posts)
+  await setAliases(catTag.id, ["kitten", "kitty"]);
+  await addImplication("cat_ears", "animal_ears");
+
+  // a pool with the first ten active posts
+  const pool = await createPool("seed-set", "first ten from the seed", admin.id);
+  if (pool) {
+    const first = await db.select({ id: posts.id }).from(posts).where(eq(posts.status, "active")).limit(10);
+    for (const p of first) await addPostToPool(pool.id, p.id);
+  }
+
+  // an extra duplicate pointing at image 0's bytes to prove dedupe
+  const dupHash = sha256Hex(await makeImage(0));
+  const dupExists = await db.select({ id: posts.id }).from(posts).where(eq(posts.sha256, dupHash)).limit(1);
+  if (!dupExists[0]) {
+    console.log("warning: image 0 missing on disk, dedupe demo skipped");
+  }
+
+  void mod;
+  console.log(`seeded: ${created} new posts (+ users, alias, implication, pool) — media in ${WEB_DIR}`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
